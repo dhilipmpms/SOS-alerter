@@ -101,16 +101,32 @@ public class MainActivity extends AppCompatActivity {
         });
 
         btnCancel.setOnClickListener(v -> stopEmergency());
+
+        SessionManager sessionManager = new SessionManager(this);
+        etPhone.setText(sessionManager.getPhoneNumber());
+        etMessage.setText(sessionManager.getCustomMessage());
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        SessionManager sessionManager = new SessionManager(this);
+        if (etPhone != null && etMessage != null) {
+            sessionManager.saveEmergencyDetails(etPhone.getText().toString(), etMessage.getText().toString());
+        }
     }
 
     private void checkPermissions() {
-        String[] permissions = {
-                Manifest.permission.SEND_SMS,
-                Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.POST_NOTIFICATIONS,
-                Manifest.permission.CAMERA
-        };
+        java.util.List<String> permissionList = new java.util.ArrayList<>();
+        permissionList.add(Manifest.permission.SEND_SMS);
+        permissionList.add(Manifest.permission.RECORD_AUDIO);
+        permissionList.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        permissionList.add(Manifest.permission.CAMERA);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissionList.add(Manifest.permission.POST_NOTIFICATIONS);
+        }
+
+        String[] permissions = permissionList.toArray(new String[0]);
 
         if (!hasPermissions(permissions)) {
             ActivityCompat.requestPermissions(this, permissions, PERMISSION_REQUEST_CODE);
@@ -198,7 +214,7 @@ public class MainActivity extends AppCompatActivity {
         if (cameraId != null) {
             try {
                 cameraManager.setTorchMode(cameraId, on);
-            } catch (CameraAccessException e) {
+            } catch (CameraAccessException | IllegalArgumentException e) {
                 e.printStackTrace();
             }
         }
@@ -220,19 +236,43 @@ public class MainActivity extends AppCompatActivity {
         vibrate(1000);
         
         String customMsg = etMessage.getText().toString();
+        String phoneNumber = etPhone.getText().toString().trim();
+        
+        if (phoneNumber.isEmpty()) {
+            Toast.makeText(this, "Emergency phone number is not set!", Toast.LENGTH_LONG).show();
+            return;
+        }
         
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            fusedLocationClient.getLastLocation().addOnSuccessListener(this, location -> {
-                String message = customMsg;
-                if (location != null) {
-                    String mapsUrl = "https://www.google.com/maps/search/?api=1&query=" + location.getLatitude() + "," + location.getLongitude();
-                    message += "\nLocation: " + mapsUrl;
-                }
-                sendSMS(etPhone.getText().toString(), message);
-            });
+            fusedLocationClient.getCurrentLocation(com.google.android.gms.location.Priority.PRIORITY_HIGH_ACCURACY, null)
+                .addOnSuccessListener(this, location -> {
+                    if (location != null) {
+                        sendLocationSMS(phoneNumber, customMsg, location);
+                    } else {
+                        // Fallback to last known location
+                        fusedLocationClient.getLastLocation().addOnSuccessListener(this, lastLoc -> {
+                            if (lastLoc != null) {
+                                sendLocationSMS(phoneNumber, customMsg, lastLoc);
+                            } else {
+                                sendSMS(phoneNumber, customMsg + "\n(Location could not be determined)");
+                            }
+                        }).addOnFailureListener(this, e -> {
+                            sendSMS(phoneNumber, customMsg + "\n(Location failed)");
+                        });
+                    }
+                })
+                .addOnFailureListener(this, e -> {
+                    sendSMS(phoneNumber, customMsg + "\n(Location failed: " + e.getMessage() + ")");
+                });
         } else {
-            sendSMS(etPhone.getText().toString(), customMsg + " (Location access denied)");
+            sendSMS(phoneNumber, customMsg + " (Location access denied)");
         }
+    }
+
+    private void sendLocationSMS(String phoneNumber, String customMsg, Location location) {
+        String mapsUrl = "https://www.google.com/maps/search/?api=1&query=" + location.getLatitude() + "," + location.getLongitude();
+        String message = customMsg + "\nLocation: " + mapsUrl;
+        sendSMS(phoneNumber, message);
     }
 
     private void sendSMS(String phoneNumber, String message) {
@@ -243,7 +283,12 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 smsManager = SmsManager.getDefault();
             }
-            smsManager.sendTextMessage(phoneNumber, null, message, null, null);
+            java.util.ArrayList<String> parts = smsManager.divideMessage(message);
+            if (parts.size() > 1) {
+                smsManager.sendMultipartTextMessage(phoneNumber, null, parts, null, null);
+            } else {
+                smsManager.sendTextMessage(phoneNumber, null, message, null, null);
+            }
             Toast.makeText(this, "SOS SMS Sent!", Toast.LENGTH_LONG).show();
         } catch (Exception e) {
             Toast.makeText(this, "SMS Failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
@@ -252,9 +297,13 @@ public class MainActivity extends AppCompatActivity {
 
     private void startRecording() {
         try {
-            File audioFile = new File(getExternalFilesDir(null), "emergency_record.mp3");
+            File audioFile = new File(getExternalFilesDir(null), "emergency_record.m4a");
             audioPath = audioFile.getAbsolutePath();
-            recorder = new MediaRecorder();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                recorder = new MediaRecorder(this);
+            } else {
+                recorder = new MediaRecorder();
+            }
             recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
             recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
             recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
