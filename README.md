@@ -91,9 +91,23 @@ Whether you are on Windows or Linux, you will need the Android SDK. Android Stud
 
 ## 🏃 Running the App
 
+### Using Android Studio
 1. Connect a physical Android device via USB (enable USB Debugging in Developer Options) or start an Android Virtual Device (AVD) from Android Studio.
 2. In Android Studio, click the green **Run** button (Shift + F10).
 3. Accept the necessary runtime permissions (Camera, Location, Microphone, SMS) when prompted on the device.
+
+### Using Terminal
+You can also build and install the app directly from your terminal using Gradle:
+
+1. Connect a physical Android device or start an emulator.
+2. Build the debug APK:
+   ```bash
+   ./gradlew assembleDebug
+   ```
+3. Install the debug APK on your connected device:
+   ```bash
+   ./gradlew installDebug
+   ```
 
 ## Note on GitHub
 This repository contains a `.gitignore` file configured for Android. Automatically generated build files, `.idea` configuration files, and `local.properties` (which contains your local SDK path) are intentionally excluded from version control to prevent path conflicts across different computers.
