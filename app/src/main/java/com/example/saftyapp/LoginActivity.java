@@ -18,7 +18,9 @@ public class LoginActivity extends AppCompatActivity {
         MaterialButton btnLogin = findViewById(R.id.btnLogin);
         TextView tvSignUp = findViewById(R.id.tvSignUp);
 
+        SessionManager sessionManager = new SessionManager(this);
         btnLogin.setOnClickListener(v -> {
+            sessionManager.setLoggedIn(true);
             // For now, redirect to dashboard
             startActivity(new Intent(LoginActivity.this, MainActivity.class));
             finish();
