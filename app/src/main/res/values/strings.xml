@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Guardian Safety</string>
+    <string name="panic_text">PANIC</string>
+    <string name="cancel_text">CANCEL</string>
+    <string name="status_ready">System Ready</string>
+    <string name="status_triggered">EMERGENCY TRIGGERED!</string>
+    <string name="emergency_msg">EMERGENCY! I need help. My location: </string>
+</resources>

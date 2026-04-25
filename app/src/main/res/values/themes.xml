@@ -1,0 +1,7 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Theme.SaftyApp" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/panic_red</item>
+        <item name="android:statusBarColor">@color/midnight_blue</item>
+        <item name="android:navigationBarColor">@color/midnight_dark</item>
+    </style>
+</resources>

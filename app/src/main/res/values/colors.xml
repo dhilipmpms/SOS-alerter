@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <!-- Primary Palette -->
+    <color name="panic_red">#EF4444</color>
+    <color name="panic_red_dark">#991B1B</color>
+    <color name="panic_glow">#FCA5A5</color>
+
+    <!-- Background Palette -->
+    <color name="midnight_dark">#020617</color>
+    <color name="midnight_blue">#0F172A</color>
+    <color name="card_bg">#1E293B</color>
+
+    <!-- Text Palette -->
+    <color name="text_primary">#F8FAFC</color>
+    <color name="text_secondary">#94A3B8</color>
+    <color name="glass_white">#1AFFFFFF</color>
+
+    <!-- Accent Colors -->
+    <color name="accent_blue">#3B82F6</color>
+    <color name="accent_green">#10B981</color>
+</resources>
