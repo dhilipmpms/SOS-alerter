@@ -42,8 +42,8 @@ Whether you are on Windows or Linux, you will need the Android SDK. Android Stud
 1. **Clone the Repository**:
    Open your terminal and run:
    ```bash
-   git clone https://github.com/your-username/saftyapp.git
-   cd saftyapp
+   git clone https://github.com/your-usernameSOS-alerter/
+   cd SOS-alerter
    ```
 2. **Set Environment Variables**:
    Open your `~/.bashrc` or `~/.zshrc` file and add the following lines at the end:
