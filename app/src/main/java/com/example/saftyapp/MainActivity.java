@@ -3,23 +3,40 @@ package com.example.saftyapp;
 import android.Manifest;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.graphics.ImageFormat;
 import android.hardware.camera2.CameraAccessException;
+import android.hardware.camera2.CameraCaptureSession;
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
+import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.CaptureResult;
+import android.hardware.camera2.TotalCaptureResult;
 import android.location.Location;
 import android.media.AudioManager;
+import android.media.Image;
+import android.media.ImageReader;
 import android.media.MediaRecorder;
 import android.media.ToneGenerator;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
+import android.provider.MediaStore;
 import android.telephony.SmsManager;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.ProgressBar;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -28,14 +45,18 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
 
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.material.button.MaterialButton;
-import android.widget.Switch;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.Semaphore;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -50,8 +71,10 @@ public class MainActivity extends AppCompatActivity {
 
     private Handler handler = new Handler();
     private Runnable emergencyRunnable;
+    private Runnable sirenRunnable;
     private int countdown = 10;
     private boolean isEmergencyActive = false;
+    private boolean isSirenRunning = false;
 
     private MediaRecorder recorder;
     private String audioPath;
@@ -61,6 +84,38 @@ public class MainActivity extends AppCompatActivity {
     private String cameraId;
     private ToneGenerator toneGenerator;
     private Vibrator vibrator;
+
+    private String photoPath;
+    private CameraDevice cameraDevice;
+    private CameraCaptureSession captureSession;
+    private ImageReader imageReader;
+    private HandlerThread cameraThread;
+    private Handler cameraHandler;
+    private Semaphore cameraOpenCloseLock = new Semaphore(1);
+    private boolean photoCaptureInProgress = false;
+
+    private final CameraDevice.StateCallback cameraStateCallback = new CameraDevice.StateCallback() {
+        @Override
+        public void onOpened(@NonNull CameraDevice camera) {
+            cameraOpenCloseLock.release();
+            cameraDevice = camera;
+            createCameraPreviewSession();
+        }
+
+        @Override
+        public void onDisconnected(@NonNull CameraDevice camera) {
+            cameraOpenCloseLock.release();
+            camera.close();
+            cameraDevice = null;
+        }
+
+        @Override
+        public void onError(@NonNull CameraDevice camera, int error) {
+            cameraOpenCloseLock.release();
+            camera.close();
+            cameraDevice = null;
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -116,6 +171,17 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        handler.removeCallbacksAndMessages(null);
+        stopRecording();
+        stopSiren();
+        toggleFlashlight(false);
+        closeCamera();
+        stopCameraThread();
+    }
+
     private void checkPermissions() {
         java.util.List<String> permissionList = new java.util.ArrayList<>();
         permissionList.add(Manifest.permission.SEND_SMS);
@@ -149,17 +215,18 @@ public class MainActivity extends AppCompatActivity {
         btnCancel.setVisibility(View.VISIBLE);
         tvTimer.setVisibility(View.VISIBLE);
         panicProgress.setVisibility(View.VISIBLE);
-        
+
         showNotification("Guardian SOS", "Emergency protocol initiated. Sending alerts in 10s.");
         startRecording();
+        captureEmergencyPhoto();
         vibrate(500);
-        
+
         if (switchSiren.isChecked()) startSiren();
         if (switchFlashlight.isChecked()) toggleFlashlight(true);
 
         countdown = 10;
         panicProgress.setProgress(0);
-        
+
         emergencyRunnable = new Runnable() {
             @Override
             public void run() {
@@ -194,15 +261,27 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startSiren() {
+        isSirenRunning = true;
         try {
             toneGenerator = new ToneGenerator(AudioManager.STREAM_ALARM, 100);
-            toneGenerator.startTone(ToneGenerator.TONE_CDMA_EMERGENCY_RINGBACK, 10000);
+            sirenRunnable = new Runnable() {
+                @Override
+                public void run() {
+                    if (isSirenRunning && toneGenerator != null) {
+                        toneGenerator.startTone(ToneGenerator.TONE_CDMA_EMERGENCY_RINGBACK, 400);
+                        handler.postDelayed(this, 500);
+                    }
+                }
+            };
+            handler.post(sirenRunnable);
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
     private void stopSiren() {
+        isSirenRunning = false;
+        handler.removeCallbacks(sirenRunnable);
         if (toneGenerator != null) {
             toneGenerator.stopTone();
             toneGenerator.release();
@@ -234,15 +313,20 @@ public class MainActivity extends AppCompatActivity {
         tvTimer.setText("SENT");
         tvStatus.setText("ALERTS DISPATCHED");
         vibrate(1000);
-        
+
+        if (etPhone == null || etMessage == null) {
+            Toast.makeText(this, "UI components not available", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         String customMsg = etMessage.getText().toString();
         String phoneNumber = etPhone.getText().toString().trim();
-        
+
         if (phoneNumber.isEmpty()) {
             Toast.makeText(this, "Emergency phone number is not set!", Toast.LENGTH_LONG).show();
             return;
         }
-        
+
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             fusedLocationClient.getCurrentLocation(com.google.android.gms.location.Priority.PRIORITY_HIGH_ACCURACY, null)
                 .addOnSuccessListener(this, location -> {
@@ -254,25 +338,30 @@ public class MainActivity extends AppCompatActivity {
                             if (lastLoc != null) {
                                 sendLocationSMS(phoneNumber, customMsg, lastLoc);
                             } else {
-                                sendSMS(phoneNumber, customMsg + "\n(Location could not be determined)");
+                                sendEmergencyMessage(phoneNumber, customMsg + "\n(Location could not be determined)");
                             }
                         }).addOnFailureListener(this, e -> {
-                            sendSMS(phoneNumber, customMsg + "\n(Location failed)");
+                            sendEmergencyMessage(phoneNumber, customMsg + "\n(Location failed)");
                         });
                     }
                 })
                 .addOnFailureListener(this, e -> {
-                    sendSMS(phoneNumber, customMsg + "\n(Location failed: " + e.getMessage() + ")");
+                    sendEmergencyMessage(phoneNumber, customMsg + "\n(Location failed: " + e.getMessage() + ")");
                 });
         } else {
-            sendSMS(phoneNumber, customMsg + " (Location access denied)");
+            sendEmergencyMessage(phoneNumber, customMsg + " (Location access denied)");
         }
     }
 
     private void sendLocationSMS(String phoneNumber, String customMsg, Location location) {
         String mapsUrl = "https://www.google.com/maps/search/?api=1&query=" + location.getLatitude() + "," + location.getLongitude();
         String message = customMsg + "\nLocation: " + mapsUrl;
+        sendEmergencyMessage(phoneNumber, message);
+    }
+
+    private void sendEmergencyMessage(String phoneNumber, String message) {
         sendSMS(phoneNumber, message);
+        sendMedia(phoneNumber);
     }
 
     private void sendSMS(String phoneNumber, String message) {
@@ -292,6 +381,36 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "SOS SMS Sent!", Toast.LENGTH_LONG).show();
         } catch (Exception e) {
             Toast.makeText(this, "SMS Failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void sendMMS(String phoneNumber, String filePath) {
+        File file = new File(filePath);
+        if (!file.exists()) return;
+        try {
+            Uri fileUri = FileProvider.getUriForFile(this, "com.example.saftyapp.fileprovider", file);
+            SmsManager smsManager;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                smsManager = getSystemService(SmsManager.class);
+            } else {
+                smsManager = SmsManager.getDefault();
+            }
+            Bundle configOverrides = new Bundle();
+            smsManager.sendMultimediaMessage(this, fileUri, null, configOverrides, null);
+            Toast.makeText(this, "MMS sent: " + file.getName(), Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void sendMedia(String phoneNumber) {
+        // Send audio via MMS
+        if (audioPath != null && new File(audioPath).exists()) {
+            sendMMS(phoneNumber, audioPath);
+        }
+        // Send photo via MMS
+        if (photoPath != null && new File(photoPath).exists()) {
+            sendMMS(phoneNumber, photoPath);
         }
     }
 
@@ -344,11 +463,157 @@ public class MainActivity extends AppCompatActivity {
         notificationManager.notify(1, builder.build());
     }
 
+    private void captureEmergencyPhoto() {
+        if (photoCaptureInProgress) return;
+        photoCaptureInProgress = true;
+        startCameraThread();
+        try {
+            cameraOpenCloseLock.acquire();
+            String camId = getFrontCameraId();
+            if (camId == null) {
+                camId = this.cameraId;
+            }
+            if (camId == null) {
+                photoCaptureInProgress = false;
+                cameraOpenCloseLock.release();
+                return;
+            }
+            cameraManager.openCamera(camId, cameraStateCallback, cameraHandler);
+        } catch (CameraAccessException | InterruptedException e) {
+            e.printStackTrace();
+            photoCaptureInProgress = false;
+            cameraOpenCloseLock.release();
+        }
+    }
+
+    private String getFrontCameraId() {
+        try {
+            for (String id : cameraManager.getCameraIdList()) {
+                CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(id);
+                Integer facing = characteristics.get(CameraCharacteristics.LENS_FACING);
+                if (facing != null && facing == CameraCharacteristics.LENS_FACING_FRONT) {
+                    return id;
+                }
+            }
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    private void createCameraPreviewSession() {
+        try {
+            imageReader = ImageReader.newInstance(640, 480, ImageFormat.JPEG, 1);
+            imageReader.setOnImageAvailableListener(reader -> {
+                Image image = null;
+                try {
+                    image = reader.acquireLatestImage();
+                    if (image != null) {
+                        ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+                        byte[] bytes = new byte[buffer.remaining()];
+                        buffer.get(bytes);
+                        File photoFile = new File(getExternalFilesDir(null), "emergency_photo.jpg");
+                        photoPath = photoFile.getAbsolutePath();
+                        try (java.io.FileOutputStream fos = new java.io.FileOutputStream(photoFile)) {
+                            fos.write(bytes);
+                        }
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                } finally {
+                    if (image != null) {
+                        image.close();
+                    }
+                }
+                closeCamera();
+                photoCaptureInProgress = false;
+                stopCameraThread();
+            }, cameraHandler);
+
+            cameraDevice.createCaptureSession(java.util.Arrays.asList(imageReader.getSurface()),
+                    new CameraCaptureSession.StateCallback() {
+                        @Override
+                        public void onConfigured(@NonNull CameraCaptureSession session) {
+                            captureSession = session;
+                            try {
+                                CaptureRequest.Builder captureBuilder =
+                                        cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+                                captureBuilder.addTarget(imageReader.getSurface());
+                                captureBuilder.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO);
+                                session.capture(captureBuilder.build(), new CameraCaptureSession.CaptureCallback() {}, cameraHandler);
+                            } catch (CameraAccessException e) {
+                                e.printStackTrace();
+                            }
+                        }
+
+                        @Override
+                        public void onConfigureFailed(@NonNull CameraCaptureSession session) {
+                            photoCaptureInProgress = false;
+                            closeCamera();
+                            stopCameraThread();
+                        }
+                    }, cameraHandler);
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+            photoCaptureInProgress = false;
+            closeCamera();
+            stopCameraThread();
+        }
+    }
+
+    private void startCameraThread() {
+        cameraThread = new HandlerThread("CameraBackground");
+        cameraThread.start();
+        cameraHandler = new Handler(cameraThread.getLooper());
+    }
+
+    private void closeCamera() {
+        try {
+            cameraOpenCloseLock.acquire();
+            if (captureSession != null) {
+                captureSession.close();
+                captureSession = null;
+            }
+            if (cameraDevice != null) {
+                cameraDevice.close();
+                cameraDevice = null;
+            }
+            if (imageReader != null) {
+                imageReader.close();
+                imageReader = null;
+            }
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } finally {
+            cameraOpenCloseLock.release();
+        }
+    }
+
+    private void stopCameraThread() {
+        if (cameraThread != null) {
+            cameraThread.quitSafely();
+            try {
+                cameraThread.join();
+                cameraThread = null;
+                cameraHandler = null;
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQUEST_CODE) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            boolean allGranted = true;
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) {
+                    allGranted = false;
+                    break;
+                }
+            }
+            if (allGranted) {
                 Toast.makeText(this, "Ready to Protect", Toast.LENGTH_SHORT).show();
             }
         }
