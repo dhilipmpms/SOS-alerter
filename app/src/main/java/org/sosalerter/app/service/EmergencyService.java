@@ -723,9 +723,13 @@ public class EmergencyService extends Service implements SensorEventListener {
         if (userName == null || userName.trim().isEmpty()) {
             userName = "The user";
         }
+        String customMsg = sessionManager.getCustomMessage();
+        String alertBody = (customMsg != null && !customMsg.trim().isEmpty())
+                ? customMsg.trim()
+                : (userName + " may be in danger.");
         String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date());
         String message = "EMERGENCY ALERT\n\n" +
-                userName + " may be in danger.\n\n" +
+                alertBody + "\n\n" +
                 "Emergency mode has been activated.\n" +
                 "Location is currently being acquired.\n" +
                 "Further updates will follow shortly.\n\n" +
@@ -963,6 +967,10 @@ public class EmergencyService extends Service implements SensorEventListener {
         if (userName == null || userName.trim().isEmpty()) {
             userName = "The user";
         }
+        String customMsg = sessionManager.getCustomMessage();
+        String alertBody = (customMsg != null && !customMsg.trim().isEmpty())
+                ? customMsg.trim()
+                : (userName + " may be in danger.");
         String latStr = String.valueOf(location.getLatitude());
         String lngStr = String.valueOf(location.getLongitude());
         String mapsUrl = "https://maps.google.com/?q=" + latStr + "," + lngStr;
@@ -975,7 +983,7 @@ public class EmergencyService extends Service implements SensorEventListener {
         String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date(location.getTime()));
 
         String message = "EMERGENCY ALERT\n\n" +
-                userName + " may be in danger.\n\n" +
+                alertBody + "\n\n" +
                 "Latitude: " + latStr + "\n\n" +
                 "Longitude: " + lngStr + "\n\n" +
                 "Address:\n\n" + address + "\n\n" +
@@ -992,9 +1000,13 @@ public class EmergencyService extends Service implements SensorEventListener {
         if (userName == null || userName.trim().isEmpty()) {
             userName = "The user";
         }
+        String customMsg = sessionManager.getCustomMessage();
+        String alertBody = (customMsg != null && !customMsg.trim().isEmpty())
+                ? customMsg.trim()
+                : (userName + " may be in danger.");
         String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date());
         String message = "EMERGENCY ALERT\n\n" +
-                userName + " may be in danger.\n\n" +
+                alertBody + "\n\n" +
                 "Latitude: Not Available\n\n" +
                 "Longitude: Not Available\n\n" +
                 "Address:\n\nNot Available\n\n" +

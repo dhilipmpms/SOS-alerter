@@ -108,7 +108,7 @@ public class SessionManager {
     }
 
     public String getCustomMessage() {
-        return prefs.getString(KEY_CUSTOM_MESSAGE, "EMERGENCY! I need immediate help. My current location is attached.");
+        return prefs.getString(KEY_CUSTOM_MESSAGE, "");
     }
 
     public void saveSmsIntervalSeconds(int seconds) {
