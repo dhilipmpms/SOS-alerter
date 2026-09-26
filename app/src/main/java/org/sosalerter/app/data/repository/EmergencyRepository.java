@@ -13,12 +13,14 @@ import org.sosalerter.app.data.db.entity.Contact;
 import org.sosalerter.app.data.db.entity.EmergencySession;
 import org.sosalerter.app.data.db.entity.LocationLog;
 import org.sosalerter.app.data.db.entity.SmsLog;
+import java.io.File;
 
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class EmergencyRepository {
+    private final Context context;
     private ContactDao contactDao;
     private EmergencySessionDao emergencySessionDao;
     private LocationLogDao locationLogDao;
@@ -30,6 +32,8 @@ public class EmergencyRepository {
     public final ExecutorService executor = Executors.newFixedThreadPool(4);
 
     public EmergencyRepository(Context context) {
+
+        this.context = context.getApplicationContext();
         AppDatabase db = AppDatabase.getDatabase(context);
         contactDao = db.contactDao();
         emergencySessionDao = db.emergencySessionDao();
@@ -79,6 +83,66 @@ public class EmergencyRepository {
 
     public void updateSession(EmergencySession session) {
         executor.execute(() -> emergencySessionDao.update(session));
+    }
+
+    public void deleteSession(EmergencySession session, Runnable onDeleted) {
+        executor.execute(() -> {
+
+            int sessionId = session.getId();
+
+            // deleting audio recording
+            if(session.getAudioPath() != null && !session.getAudioPath().isEmpty()) {
+
+                File audioFile = new File(session.getAudioPath());
+
+                if(audioFile.exists()) {
+                    audioFile.delete();
+                }
+            }
+
+            // delete all photos 
+
+            File evidenceDir = new File(
+                context.getFilesDir(),
+                "evidence"
+            );
+
+            if (evidenceDir.exists() && evidenceDir.isDirectory()) {
+
+                File[] files = evidenceDir.listFiles();
+
+                if(files != null) {
+
+                    String frontPrefix = "Front_session_" + session.getId() + "_";
+
+                    String rearPrefix  = "rear_session_" + session.getId() + "_";
+
+                    for (File file : files) {
+
+                        String name = file.getName();
+
+                        if ((name.startsWith(frontPrefix) || name.startsWith(rearPrefix)) && name.endsWith(".jpg")) {
+                            file.delete();
+
+                        }                            
+                    }
+                }
+            }
+            // Delete location logs
+            locationLogDao.deleteBySessionId(sessionId);
+            
+            // Delete SMS logs
+            smsLogDao.deleteBySessionId(sessionId); 
+
+            // delete database record 
+            emergencySessionDao.deleteById(sessionId);
+
+            if (onDeleted != null) {
+                onDeleted.run();
+            }
+
+
+        });
     }
 
     public LiveData<List<LocationLog>> getLogsForSession(int sessionId) {

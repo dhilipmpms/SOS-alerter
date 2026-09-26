@@ -20,4 +20,7 @@ public interface SmsLogDao {
 
     @Query("SELECT * FROM sms_logs WHERE sessionId = :sessionId ORDER BY timestamp ASC")
     List<SmsLog> getLogsForSessionSync(int sessionId);
+
+    @Query("DELETE FROM sms_logs WHERE sessionid = :sessionId")
+    void deleteBySessionId(int sessionId);
 }

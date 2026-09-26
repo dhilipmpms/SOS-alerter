@@ -19,6 +19,9 @@ public interface EmergencySessionDao {
     @Update
     void update(EmergencySession session);
 
+    @Query("DELETE FROM emergency_sessions WHERE id = :id")
+    void deleteById(int id);
+
     @Query("SELECT * FROM emergency_sessions ORDER BY startTime DESC")
     LiveData<List<EmergencySession>> getAllSessions();
 

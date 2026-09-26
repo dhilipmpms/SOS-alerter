@@ -20,4 +20,7 @@ public interface LocationLogDao {
 
     @Query("SELECT * FROM location_logs WHERE sessionId = :sessionId ORDER BY timestamp ASC")
     List<LocationLog> getLogsForSessionSync(int sessionId);
+
+    @Query("DELETE FROM location_logs WHERE sessionId = :sessionId")
+    void deleteBySessionId(int sessionId);
 }

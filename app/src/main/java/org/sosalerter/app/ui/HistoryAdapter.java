@@ -11,6 +11,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.app.AlertDialog;
 
 import java.util.Collections;
 
@@ -68,6 +69,48 @@ public class HistoryAdapter extends RecyclerView.Adapter<HistoryAdapter.HistoryV
     @Override
     public void onBindViewHolder(@NonNull HistoryViewHolder holder, int position) {
         EmergencySession session = sessions.get(position);
+
+        holder.btnDelete.setOnClickListener(v -> {
+
+            new AlertDialog.Builder(v.getContext())
+                    .setTitle("Delete SOS record?")
+                    .setMessage("This will permanently delete this SOS record and its recorded evidence.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Delete", (dialog, which) -> {
+                    
+                        int currentPosition =
+                                holder.getAdapterPosition();
+
+                        if (currentPosition == RecyclerView.NO_POSITION) {
+                            return;
+                        }
+
+                        EmergencySession sessionToDelete =
+                                sessions.get(currentPosition);
+
+                        // Stop audio if this record is currently playing
+                        if (playingPosition == currentPosition) {
+                            stopPlayback();
+                        }
+
+                        repository.deleteSession(
+                                sessionToDelete,
+                                () -> holder.itemView.post(() -> {
+                                
+                                    sessions.remove(currentPosition);
+
+                                    if (expandedPosition == currentPosition) {
+                                        expandedPosition = -1;
+                                    } else if (expandedPosition > currentPosition) {
+                                        expandedPosition--;
+                                    }
+
+                                    notifyItemRemoved(currentPosition);
+                                })
+                        );
+                    })
+                    .show();
+        });
         
         // Setup simple header info
         holder.tvTrigger.setText("SOS via " + session.getTriggerType());
@@ -315,6 +358,7 @@ public class HistoryAdapter extends RecyclerView.Adapter<HistoryAdapter.HistoryV
         
         final View layoutAudioSection;
         final ImageButton btnPlayAudio;
+        final ImageButton btnDelete;
         final TextView tvLocationTimeline;
 
         HistoryViewHolder(View itemView) {
@@ -334,7 +378,9 @@ public class HistoryAdapter extends RecyclerView.Adapter<HistoryAdapter.HistoryV
             
             layoutAudioSection = itemView.findViewById(R.id.layoutAudioSection);
             btnPlayAudio = itemView.findViewById(R.id.btnPlayAudio);
+            btnDelete = itemView.findViewById(R.id.btnDelete);
             tvLocationTimeline = itemView.findViewById(R.id.tvLocationTimeline);
+
         }
     }
 }
